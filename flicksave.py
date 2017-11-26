@@ -51,7 +51,8 @@ class Flick:
             last_tag = last_of(last_name.split(self.date_sep))
             last_date = datetime.datetime.strptime(last_tag, self.date_template)
 
-            print("Last flick on:",last_date.isoformat())
+            #print("Last flick on:",last_date.isoformat())
+            logging.info("Last flick on %s", last_date.isoformat())
 
             assert(last_date <= date_now)
             if date_now - last_date < datetime.timedelta(seconds=self.delay):
@@ -62,39 +63,32 @@ class Flick:
 
 class Save(FileSystemEventHandler):
     def __init__(self, target, flick = None):
+        self.base = target
+
         if not flick:
             self.flick = Flick(target)
         else:
             self.flick = flick
 
-        self.base = target
         super(Save,self).__init__()
+
 
     def on_any_event(self, event):
         super(Save,self).on_any_event(event)
+        # Watchdog cannot watch singl files,
+        # so we filter it in this event handler.
         if (not event.is_directory) and event.src_path == self.base:
-            logging.info("Touched %s: %s", event.src_path, self.flick.next())
+            logging.info("Touched %s -> %s", event.src_path, self.flick.next())
 
 
-if __name__=="__main__":
-    import sys
-    import time
-    import logging
-
-    target = sys.argv[1]
-    path = os.path.dirname(target)
-
-    flick = Flick(target)
-    print(flick.next())
+def flicksave(target, save_dir=".", delay=10, stamp_sep='_', date_template="%Y-%m-%dT%H:%M:%S"):
+    flick = Flick(target, save_dir, delay, stamp_sep, date_template)
+    save = Save(target, flick)
 
     observer = Observer()
 
-    logging.basicConfig(level=logging.INFO,
-                        format='%(asctime)s - %(message)s',
-                        datefmt='%Y-%m-%d %H:%M:%S')
-
-    event_handler = Save(target, flick)
-    observer.schedule(event_handler, path)
+    path = os.path.dirname(target)
+    observer.schedule(save, path)
 
     observer.start()
     try:
@@ -104,3 +98,20 @@ if __name__=="__main__":
         observer.stop()
     observer.join()
 
+
+
+if __name__=="__main__":
+    import sys
+    import time
+    import logging
+
+    target = sys.argv[1]
+
+    #flick = Flick(target)
+    #print(flick.next())
+
+    logging.basicConfig(level=logging.INFO,
+                        format='%(asctime)s - %(message)s',
+                        datefmt='%Y-%m-%d %H:%M:%S')
+
+    flicksave(target)
