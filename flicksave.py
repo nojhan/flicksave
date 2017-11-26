@@ -1,14 +1,17 @@
 import os
 import glob
 import datetime
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+from watchdog.events import LoggingEventHandler
 
 def last_of(us):
     return us[-1]
 
 
 class Flick:
-    def __init__(self, basename, save_dir=".", delay=10, stamp_sep='_', date_template="%Y-%m-%dT%H:%M:%S"):
-        self.base = basename
+    def __init__(self, target, save_dir=".", delay=10, stamp_sep='_', date_template="%Y-%m-%dT%H:%M:%S"):
+        self.base = target
         self.date_template = date_template
         self.date_sep = stamp_sep
         self.save_dir = save_dir
@@ -57,8 +60,47 @@ class Flick:
         return self.make(self.save_dir,name,date_now,ext)
 
 
+class Save(FileSystemEventHandler):
+    def __init__(self, target, flick = None):
+        if not flick:
+            self.flick = Flick(target)
+        else:
+            self.flick = flick
+
+        self.base = target
+        super(Save,self).__init__()
+
+    def on_any_event(self, event):
+        super(Save,self).on_any_event(event)
+        if (not event.is_directory) and event.src_path == self.base:
+            logging.info("Touched %s: %s", event.src_path, self.flick.next())
+
+
 if __name__=="__main__":
     import sys
+    import time
+    import logging
 
-    f = Flick(sys.argv[1])
-    print(f.next())
+    target = sys.argv[1]
+    path = os.path.dirname(target)
+
+    flick = Flick(target)
+    print(flick.next())
+
+    observer = Observer()
+
+    logging.basicConfig(level=logging.INFO,
+                        format='%(asctime)s - %(message)s',
+                        datefmt='%Y-%m-%d %H:%M:%S')
+
+    event_handler = Save(target, flick)
+    observer.schedule(event_handler, path)
+
+    observer.start()
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        observer.stop()
+    observer.join()
+
