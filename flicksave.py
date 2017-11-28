@@ -1,9 +1,17 @@
+#!/usr/bin/env python3
+#encoding: utf-8
+
 import os
+import time
 import glob
+import shutil
+import logging
 import datetime
+
 from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
 from watchdog.events import LoggingEventHandler
+from watchdog.events import FileSystemEventHandler
+
 
 def last_of(us):
     return us[-1]
@@ -27,7 +35,7 @@ class Flick:
         return self
 
     def make(self, save_dir, name, date, ext):
-        # Current date with second precision (without micro-seconds).
+        # Current date with second precision (i.e. without micro-seconds).
         tag = date.isoformat().split(".")[0]
         flick = name + self.date_sep + tag + ext
         return os.path.join(save_dir, flick)
@@ -38,10 +46,13 @@ class Flick:
         name,ext = os.path.splitext(head)
 
         pattern = name+self.date_sep+self.glob_template+ext
+        logging.debug("Search pattern: %s", pattern)
+
         existing = glob.glob(os.path.join(self.save_dir,pattern))
+        logging.debug("Matching files: %s", existing)
 
         date_now = datetime.datetime.now()
-        #print(date_now)
+        logging.debug("Current date: %s", date_now.isoformat())
 
         if existing:
             last = last_of(sorted(existing))
@@ -51,11 +62,11 @@ class Flick:
             last_tag = last_of(last_name.split(self.date_sep))
             last_date = datetime.datetime.strptime(last_tag, self.date_template)
 
-            #print("Last flick on:",last_date.isoformat())
-            logging.info("Last flick on %s", last_date.isoformat())
+            logging.debug("Last flick at: %s", last_date.isoformat())
 
             assert(last_date <= date_now)
             if date_now - last_date < datetime.timedelta(seconds=self.delay):
+                logging.debug("Current delta: %s < %s", date_now - last_date,datetime.timedelta(seconds=self.delay))
                 return self.make(self.save_dir,name,last_date,ext)
 
         return self.make(self.save_dir,name,date_now,ext)
@@ -75,10 +86,20 @@ class Save(FileSystemEventHandler):
 
     def on_any_event(self, event):
         super(Save,self).on_any_event(event)
-        # Watchdog cannot watch singl files,
+        # Watchdog cannot watch single files (FIXME bugreport),
         # so we filter it in this event handler.
         if (not event.is_directory) and event.src_path == self.base:
-            logging.info("Touched %s -> %s", event.src_path, self.flick.next())
+            f = self.flick.next()
+            logging.info("%s -> %s", event.src_path, f)
+            try:
+                shutil.copy(event.src_path, f)
+            except FileNotFoundError:
+                logging.warning('WARNING create missing directory: %s',os.path.dirname(f))
+                os.mkdir(os.path.dirname(f))
+                shutil.copy(event.src_path, f)
+            #FIXME more error handling?
+            except:
+                logging.error("ERROR while copying file: %s", sys.exc_info()[0])
 
 
 def flicksave(target, save_dir=".", delay=10, stamp_sep='_', date_template="%Y-%m-%dT%H:%M:%S"):
@@ -99,19 +120,37 @@ def flicksave(target, save_dir=".", delay=10, stamp_sep='_', date_template="%Y-%
     observer.join()
 
 
-
 if __name__=="__main__":
     import sys
-    import time
-    import logging
+    import argparse
 
-    target = sys.argv[1]
+    # With default values in help message.
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-    #flick = Flick(target)
-    #print(flick.next())
+    # Required argument.
+    parser.add_argument("target",
+        help="The file to save each time it's modified.")
 
-    logging.basicConfig(level=logging.INFO,
-                        format='%(asctime)s - %(message)s',
-                        datefmt='%Y-%m-%d %H:%M:%S')
+    # Optional arguments.
+    parser.add_argument("-d","--directory", default='.',
+        help="The directory in which to copy the saved versions.")
+    parser.add_argument("-y","--delay",     default=10,
+        help="The minimum time (in seconds) between the creation of different saved files.")
+    parser.add_argument("-s","--separator", default='_',
+        help="Separator character between the file name and the date stamp.")
+    parser.add_argument("-t","--template",  default='%Y-%m-%dT%H:%M:%S',
+        help="Template of the date stamp.")
+    parser.add_argument("-v","--verbose", choices=['DEBUG','INFO','WARNING','ERROR'], default='WARNING',
+        help="Verbosity level.")
+    log_as = { 'DEBUG'  :logging.DEBUG,
+               'INFO'   :logging.INFO,
+               'WARNING':logging.WARNING,
+               'ERROR'  :logging.ERROR }
 
-    flicksave(target)
+    asked = parser.parse_args()
+
+    logging.basicConfig(level=log_as[asked.verbose], format='%(asctime)s -- %(message)s', datefmt=asked.template)
+
+    # Start it.
+    flicksave(asked.target, asked.directory, asked.delay, asked.separator, asked.template)
+
