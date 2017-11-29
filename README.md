@@ -7,6 +7,7 @@ For example, each time you hit `Ctrl-S` within a drawing software,
 FlickSave will make a copy the current version of your file,
 along with the precise date of this version.
 
+This may be useful for digital artists that want to prepare a time-lapse of their on-going work without having to think about it.
 
 # Usage
 
