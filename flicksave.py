@@ -103,14 +103,17 @@ class Save(FileSystemEventHandler):
 
 
 def flicksave(target, save_dir=".", delay=10, stamp_sep='_', date_template="%Y-%m-%dT%H:%M:%S"):
+    # Handle files specified without a directory.
+    root = os.path.dirname(target)
+    if not root:
+        root = '.'
+    target = os.path.join(root,target)
+
     flick = Flick(target, save_dir, delay, stamp_sep, date_template)
     save = Save(target, flick)
 
     observer = Observer()
-
-    path = os.path.dirname(target)
-    observer.schedule(save, path)
-
+    observer.schedule(save, root)
     observer.start()
     try:
         while True:
