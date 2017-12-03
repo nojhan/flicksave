@@ -7,6 +7,7 @@ import glob
 import shutil
 import logging
 import datetime
+import subprocess
 
 from watchdog.observers import Observer
 from watchdog.events import LoggingEventHandler
@@ -75,20 +76,37 @@ class Flick:
 
 class Operator:
     """Interface example for an Operator (but can actually be any callable with the same signature)."""
-    def __call__(self, filename, event):
+    def __call__(self, target, flickname):
         raise NotImplemented
 
 
+class Command(Operator):
+    """Run a user-defined command.
+    Takes the target and the flick as argument.
+    The command should be a python 3 format string.
+    For example: 'cp {target} {flick}'
+    You can omit one of the named arguments.
+    For example: 'touch {flick}'"""
+    def __init__(self, command):
+        self.cmd = command
+    def __call__(self, target, flickname):
+        cmd = self.cmd.format(target=target,flick=flickname)
+        logging.info("Run command: %s", cmd )
+        # Subprocess want a list of cmd and arguments.
+        subprocess.run(cmd.split())
+
+
 class Save(Operator):
-    """Make a copy of the target file."""
-    def __call__(self, filename, event):
-        logging.info("Copy %s as %s", event.src_path, filename)
+    """Make a copy of the target file.
+    Takes care to create a missing directory if necessary."""
+    def __call__(self, target, flickname):
+        logging.info("Copy %s as %s", target, flickname)
         try:
-            shutil.copy(event.src_path, filename)
+            shutil.copy(target, flickname)
         except FileNotFoundError:
-            logging.warning('WARNING create missing directory: %s',os.path.dirname(filename))
-            os.mkdir(os.path.dirname(filename))
-            shutil.copy(event.src_path, filename)
+            logging.warning('WARNING create missing directory: %s',os.path.dirname(flickname))
+            os.mkdir(os.path.dirname(flickname))
+            shutil.copy(target, flickname)
             #FIXME more error handling?
         except:
             logging.error("ERROR while copying file: %s", sys.exc_info()[0])
@@ -113,15 +131,16 @@ class Handler(FileSystemEventHandler):
         # so we filter it in this event handler.
         if (not event.is_directory) and os.path.abspath(event.src_path) == os.path.abspath(self.target):
             logging.debug("Handle event")
-            filename = self.flick.next()
-            logging.debug("New flick for %s: %s", event.src_path, filename)
+            flickname = self.flick.next()
+            logging.debug("New flick for %s: %s", event.src_path, flickname)
 
             for op in self.ops:
                 logging.debug("Calling %s", op)
-                op(filename,event)
+                op(event.src_path, flickname)
 
 
 def flicksave(target, operators=None, save_dir=".", delay=10, stamp_sep='_', date_template="%Y-%m-%dT%H:%M:%S"):
+    """Start the watch thread."""
     # Handle files specified without a directory.
     root = os.path.dirname(target)
     if not root:
@@ -179,6 +198,8 @@ if __name__=="__main__":
 
     logging.basicConfig(level=log_as[asked.verbose], format='%(asctime)s -- %(message)s', datefmt=asked.template)
 
+    operators = [Command("cp {target} {flick}"),Command("touch {flick}")]
+
     # Start it.
-    flicksave(asked.target, None, asked.directory, asked.delay, asked.separator, asked.template)
+    flicksave(asked.target, operators, asked.directory, asked.delay, asked.separator, asked.template)
 
