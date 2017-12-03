@@ -18,8 +18,9 @@ def last_of(us):
 
 
 class Flick:
+    """Build a new timestamped file name."""
     def __init__(self, target, save_dir=".", delay=10, stamp_sep='_', date_template="%Y-%m-%dT%H:%M:%S"):
-        self.base = target
+        self.target = target
         self.date_template = date_template
         self.date_sep = stamp_sep
         self.save_dir = save_dir
@@ -41,7 +42,7 @@ class Flick:
         return os.path.join(save_dir, flick)
 
     def next(self):
-        full = os.path.expanduser(self.base)
+        full = os.path.expanduser(self.target)
         head = os.path.basename(full)
         name,ext = os.path.splitext(head)
 
@@ -72,37 +73,55 @@ class Flick:
         return self.make(self.save_dir,name,date_now,ext)
 
 
-class Save(FileSystemEventHandler):
-    def __init__(self, target, flick = None):
-        self.base = target
+class Operator:
+    """Interface example for an Operator (but can actually be any callable with the same signature)."""
+    def __call__(self, filename, event):
+        raise NotImplemented
+
+
+class Save(Operator):
+    """Make a copy of the target file."""
+    def __call__(self, filename, event):
+        logging.info("Copy %s as %s", event.src_path, filename)
+        try:
+            shutil.copy(event.src_path, filename)
+        except FileNotFoundError:
+            logging.warning('WARNING create missing directory: %s',os.path.dirname(filename))
+            os.mkdir(os.path.dirname(filename))
+            shutil.copy(event.src_path, filename)
+            #FIXME more error handling?
+        except:
+            logging.error("ERROR while copying file: %s", sys.exc_info()[0])
+
+
+class Handler(FileSystemEventHandler):
+    """Event handler, will call a sequence of operators at each event matching the target."""
+    def __init__(self, target, operators, flick = None):
+        self.target = target
 
         if not flick:
             self.flick = Flick(target)
         else:
             self.flick = flick
 
-        super(Save,self).__init__()
-
+        self.ops = operators
 
     def on_any_event(self, event):
-        super(Save,self).on_any_event(event)
+        logging.debug("Received event %s",event)
+        super(Handler,self).on_any_event(event)
         # Watchdog cannot watch single files (FIXME bugreport),
         # so we filter it in this event handler.
-        if (not event.is_directory) and event.src_path == self.base:
-            f = self.flick.next()
-            logging.info("%s -> %s", event.src_path, f)
-            try:
-                shutil.copy(event.src_path, f)
-            except FileNotFoundError:
-                logging.warning('WARNING create missing directory: %s',os.path.dirname(f))
-                os.mkdir(os.path.dirname(f))
-                shutil.copy(event.src_path, f)
-            #FIXME more error handling?
-            except:
-                logging.error("ERROR while copying file: %s", sys.exc_info()[0])
+        if (not event.is_directory) and os.path.abspath(event.src_path) == os.path.abspath(self.target):
+            logging.debug("Handle event")
+            filename = self.flick.next()
+            logging.debug("New flick for %s: %s", event.src_path, filename)
+
+            for op in self.ops:
+                logging.debug("Calling %s", op)
+                op(filename,event)
 
 
-def flicksave(target, save_dir=".", delay=10, stamp_sep='_', date_template="%Y-%m-%dT%H:%M:%S"):
+def flicksave(target, operators=None, save_dir=".", delay=10, stamp_sep='_', date_template="%Y-%m-%dT%H:%M:%S"):
     # Handle files specified without a directory.
     root = os.path.dirname(target)
     if not root:
@@ -110,10 +129,16 @@ def flicksave(target, save_dir=".", delay=10, stamp_sep='_', date_template="%Y-%
     target = os.path.join(root,target)
 
     flick = Flick(target, save_dir, delay, stamp_sep, date_template)
-    save = Save(target, flick)
 
+    # At least, save a copy of the file.
+    if not operators:
+        operators = [Save()]
+
+    handler = Handler(target, operators, flick)
+
+    # Start the watch thread.
     observer = Observer()
-    observer.schedule(save, root)
+    observer.schedule(handler, root)
     observer.start()
     try:
         while True:
@@ -155,5 +180,5 @@ if __name__=="__main__":
     logging.basicConfig(level=log_as[asked.verbose], format='%(asctime)s -- %(message)s', datefmt=asked.template)
 
     # Start it.
-    flicksave(asked.target, asked.directory, asked.delay, asked.separator, asked.template)
+    flicksave(asked.target, None, asked.directory, asked.delay, asked.separator, asked.template)
 
