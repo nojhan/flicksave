@@ -76,7 +76,7 @@ class Flick:
 
 class Operator:
     """Interface example for an Operator (but can actually be any callable with the same signature)."""
-    def __call__(self, target, flickname):
+    def __call__(self, target, flick, alt_ext = None):
         raise NotImplemented
 
 
@@ -87,29 +87,49 @@ class Command(Operator):
     For example: 'cp {target} {flick}'
     You can omit one of the named arguments.
     For example: 'touch {flick}'"""
-    def __init__(self, command):
+
+    def __init__(self, command, alt_ext = None):
         self.cmd = command
-    def __call__(self, target, flickname):
-        cmd = self.cmd.format(target=target,flick=flickname)
+        self.alt_ext = alt_ext
+
+    def __call__(self, target, flick):
+
+        # Change the extension, if asked.
+        flickname,flickext = os.path.splitext(flick)
+        if self.alt_ext:
+            flick = "{}.{}".format(flickname,self.alt_ext)
+
+        cmd = self.cmd.format(target=target,flick=flick)
         logging.info("Run command: %s", cmd )
-        # Subprocess want a list of cmd and arguments.
-        subprocess.run(cmd.split())
+        try:
+            # We want the shell because we may call shell command or need environment variables.
+            proc = subprocess.run(cmd, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        except subprocess.CalledProcessError:
+            logging.error("ERROR while calling command")
+            logging.debug("\tReturn code: %s",proc.returncode)
+            logging.info("\tOut: %s",proc.stdout)
+            logging.info("\tErr: %s",proc.stderr)
+        except:
+            logging.error("ERROR while calling subprocess: %s", sys.exc_info()[0])
+
+        logging.debug("Command ended.")
 
 
 class Save(Operator):
-    """Make a copy of the target file.
-    Takes care to create a missing directory if necessary."""
-    def __call__(self, target, flickname):
-        logging.info("Copy %s as %s", target, flickname)
-        try:
-            shutil.copy(target, flickname)
-        except FileNotFoundError:
-            logging.warning('WARNING create missing directory: %s',os.path.dirname(flickname))
-            os.mkdir(os.path.dirname(flickname))
-            shutil.copy(target, flickname)
-            #FIXME more error handling?
-        except:
-            logging.error("ERROR while copying file: %s", sys.exc_info()[0])
+   """Make a copy of the target file.
+   Takes care to create a missing directory if necessary."""
+
+   def __call__(self, target, flickname):
+       logging.info("Copy %s as %s", target, flickname)
+       try:
+           shutil.copy(target, flickname)
+       except FileNotFoundError:
+           logging.warning('WARNING create missing directory: %s',os.path.dirname(flickname))
+           os.mkdir(os.path.dirname(flickname))
+           shutil.copy(target, flickname)
+           #FIXME more error handling?
+       except:
+           logging.error("ERROR while copying file: %s", sys.exc_info()[0])
 
 
 class Handler(FileSystemEventHandler):
@@ -136,7 +156,7 @@ class Handler(FileSystemEventHandler):
 
             for op in self.ops:
                 logging.debug("Calling %s", op)
-                op(event.src_path, flickname)
+                op(os.path.abspath(event.src_path), os.path.abspath(flickname))
 
 
 def flicksave(target, operators=None, save_dir=".", delay=10, stamp_sep='_', date_template="%Y-%m-%dT%H:%M:%S"):
@@ -198,7 +218,11 @@ if __name__=="__main__":
 
     logging.basicConfig(level=log_as[asked.verbose], format='%(asctime)s -- %(message)s', datefmt=asked.template)
 
-    operators = [Command("cp {target} {flick}"),Command("touch {flick}")]
+    ops = {
+        "default" : Save(),
+        "inkscape": Command("inkscape {target} --without-gui --export-png={flick} --export-area-page", "png")
+    }
+    operators = [ops[instance] for instance in ops]
 
     # Start it.
     flicksave(asked.target, operators, asked.directory, asked.delay, asked.separator, asked.template)
