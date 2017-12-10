@@ -92,6 +92,9 @@ class Command(Operator):
         self.cmd = command
         self.alt_ext = alt_ext
 
+    def __repr__(self):
+        return "Command(\"{}\",\"{}\")".format(self.cmd,self.alt_ext)
+
     def __call__(self, target, flick):
 
         # Change the extension, if asked.
@@ -118,6 +121,8 @@ class Command(Operator):
 class Save(Operator):
    """Make a copy of the target file.
    Takes care to create a missing directory if necessary."""
+   def __repr__(self):
+       return "Save()"
 
    def __call__(self, target, flickname):
        logging.info("Copy %s as %s", target, flickname)
@@ -213,16 +218,43 @@ if __name__=="__main__":
                'INFO'   :logging.INFO,
                'WARNING':logging.WARNING,
                'ERROR'  :logging.ERROR }
+    parser.add_argument("-n","--no-save", action="store_true",
+        help="Do not copy the file (useful if you only want to run another command).")
+
+    available = {
+        "inkscape":
+            ("Save a PNG snapshot of the file, using inkscape.",
+             Command("inkscape {target} --without-gui --export-png={flick} --export-area-page", "png"))
+    }
+
+    def help(name):
+        return available[name][0]
+    def instance(name):
+        return available[name][1]
+
+    for name in available:
+        parser.add_argument("--"+name, help=help(name), action="store_true")
 
     asked = parser.parse_args()
 
     logging.basicConfig(level=log_as[asked.verbose], format='%(asctime)s -- %(message)s', datefmt=asked.template)
 
-    ops = {
-        "default" : Save(),
-        "inkscape": Command("inkscape {target} --without-gui --export-png={flick} --export-area-page", "png")
-    }
-    operators = [ops[instance] for instance in ops]
+    logging.debug("Available operators:")
+    for name in available:
+        logging.debug("\t%s",name)
+
+    if asked.no_save:
+        operators = []
+    else:
+        operators = [Save()]
+
+    requested = vars(asked)
+    for it in [iz for iz in requested if iz in available and requested[iz]==True]:
+        operators.append(instance(it))
+
+    logging.debug("Used operators:")
+    for op in operators:
+        logging.debug("\t%s", op)
 
     # Start it.
     flicksave(asked.target, operators, asked.directory, asked.delay, asked.separator, asked.template)
