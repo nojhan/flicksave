@@ -206,7 +206,7 @@ if __name__=="__main__":
     # Optional arguments.
     parser.add_argument("-d","--directory", default='.',
         help="The directory in which to copy the saved versions.")
-    parser.add_argument("-y","--delay",     default=10,
+    parser.add_argument("-y","--delay",     default=10, type=int,
         help="The minimum time (in seconds) between the creation of different saved files.")
     parser.add_argument("-s","--separator", default='_',
         help="Separator character between the file name and the date stamp.")
