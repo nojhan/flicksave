@@ -19,8 +19,13 @@ def last_of(us):
 
 
 class Flick:
+    def __init__(self, target, date, ext = None):
+        self.target = target
+        self.date = date
+        self.ext = ext
+
     def __repr__(self):
-        return f"Flick({self.save_dir},{self.target},{self.date_sep},{self.date},{self.ext})"
+        return f"Flick({self.date},{self.target},{self.ext})"
 
     def as_file(self):
         # Assemble the flick properties as if it was a file.
@@ -32,42 +37,56 @@ class Flick:
         flickname = name + self.date_sep + tag + ext
         return os.path.join(save_dir, flickname)
 
-    def __init__(self, target, date, save_dir=".", date_sep='_', ext = None):
-        self.target = target
-        self.date = date
-        self.date_sep = date_sep
-        self.save_dir = save_dir
-        self.ext = ext
-
 
 class Flicker:
     """Build a new timestamped file name."""
-    def __init__(self, target, save_dir=".", delay=10, date_sep='_', date_template="%Y-%m-%dT%H:%M:%S"):
+    def __init__(self, target, delay=10):
         self.target = target
+        self.delay = delay
+        self.last_date = None
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        name,ext = os.path.splitext(self.target)
+        date_now = datetime.datetime.now()
+
+        if self.last_date:
+            logging.debug("Current date: %s", date_now.isoformat())
+            assert(self.last_date <= date_now)
+
+            if date_now - self.last_date < datetime.timedelta(seconds=self.delay):
+                logging.debug("Current delta: %s < %s", date_now - self.last_date,datetime.timedelta(seconds=self.delay))
+                return Flick(self.target, self.last_date, ext)
+
+        return Flick(self.target, date_now, ext)
+
+
+class Operator:
+    """Interface example for an Operator (but can actually be any callable with the same signature)."""
+    def __call__(self, target, flick, alt_ext = None):
+        raise NotImplemented
+
+
+class Save(Operator):
+    """Make a copy of the target file.
+    Takes care to create a missing directory if necessary."""
+    def __repr__(self):
+        return f"Save({self.last_date})"
+
+    def __init__(self, save_dir, date_sep, date_template):
         self.date_template = date_template
         self.date_sep = date_sep
         self.save_dir = save_dir
-        self.delay = delay
-
         # Make a glob search expression with the date template.
         self.fields = {'Y':4,'m':2,'d':2,'H':2,'M':2,'S':2}
         self.glob_template = self.date_template
         for k in self.fields:
             self.glob_template = self.glob_template.replace("%"+k,'?'*self.fields[k])
 
-        self.last_date = self.find_last_save()
-
-    def __iter__(self):
-        return self
-
-    # def make(self, save_dir, name, date, ext):
-    #     # Current date with second precision (i.e. without micro-seconds).
-    #     tag = date.isoformat().split(".")[0]
-    #     flickname = name + self.date_sep + tag + ext
-    #     return os.path.join(save_dir, flickname)
-
-    def find_last_save(self):
-        full = os.path.expanduser(self.target)
+    def find_last_save(self, target):
+        full = os.path.expanduser(target)
         head = os.path.basename(full)
         name,ext = os.path.splitext(head)
 
@@ -90,34 +109,7 @@ class Flicker:
         logging.debug("No previous save found.")
         return None
 
-    def next(self):
-        name,ext = os.path.splitext(self.target)
-        date_now = datetime.datetime.now()
-
-        if self.last_date:
-            logging.debug("Current date: %s", date_now.isoformat())
-            assert(self.last_date <= date_now)
-
-            if date_now - self.last_date < datetime.timedelta(seconds=self.delay):
-                logging.debug("Current delta: %s < %s", date_now - self.last_date,datetime.timedelta(seconds=self.delay))
-                return Flick(self.target, self.last_date, self.save_dir, self.date_sep, ext)
-
-        return Flick(self.target, date_now, self.save_dir, self.date_sep,ext)
-
-
-class Operator:
-    """Interface example for an Operator (but can actually be any callable with the same signature)."""
-    def __call__(self, target, flick, alt_ext = None):
-        raise NotImplemented
-
-
-class Save(Operator):
-    """Make a copy of the target file.
-    Takes care to create a missing directory if necessary."""
-    def __repr__(self):
-        return "Save()"
-
-    def __call__(self, target, flick, alt_ext = None):
+    def save(self, flick):
         flickfile = flick.as_file()
         logging.info("Copy %s as %s", target, flickfile)
         try:
@@ -129,6 +121,22 @@ class Save(Operator):
             #FIXME more error handling?
         except:
             logging.error("ERROR while copying file: %s", sys.exc_info()[0])
+
+        self.last_date = self.find_last_save(self.flick.target)
+
+    def __call__(self, target, flick, alt_ext = None):
+        self.last_date = self.find_last_save(self.flick.target)
+        if self.last_date:
+            logging.debug("Current date: %s", date_now.isoformat())
+            assert(self.last_date <= date_now)
+
+            if date_now - self.last_date < datetime.timedelta(seconds=self.delay):
+                logging.debug("Current delta: %s < %s", date_now - self.last_date,datetime.timedelta(seconds=self.delay))
+                save(flick)
+            else:
+                logging.info("Delay not reached, I will not save.")
+        else:
+            save(flick)
 
 
 class Command(Operator):
@@ -178,8 +186,7 @@ class Log(Operator):
 
 class Handler(FileSystemEventHandler):
     """Event handler, will call a sequence of operators at each event matching the target."""
-    def __init__(self, target, operators, flicker, watched_types = ["modified"] ):
-        self.target = target
+    def __init__(self, operators, flicker, watched_types = ["modified"] ):
         self.flicker = flicker
         self.ops = operators
         self.watched_types = watched_types
@@ -189,20 +196,19 @@ class Handler(FileSystemEventHandler):
         super(Handler,self).on_any_event(event)
         # Watchdog cannot watch single files (FIXME bugreport?),
         # so we filter it in this event handler.
-        if (not event.is_directory) and os.path.abspath(event.src_path) == os.path.abspath(self.target) and event.event_type in self.watched_types:
+        if (not event.is_directory) and os.path.abspath(event.src_path) == os.path.abspath(self.flicker.target) and event.event_type in self.watched_types:
             logging.debug("Handle event")
             flick = self.flicker.next()
             logging.debug("New flicker for %s: %s", event.src_path, flick)
 
             for op in self.ops:
                 logging.debug("Calling %s", op)
-                # op(os.path.abspath(event.src_path), os.path.abspath(flickname))
-                op(os.path.abspath(event.src_path),flick)
+                op(os.path.abspath(event.src_path), flick)
         else:
             logging.debug("Not handling event: file={}, is_directory={}, watched_types={}".format(os.path.abspath(event.src_path),event.is_directory, self.watched_types))
 
 
-def flicksave(target, operators=None, save_dir=".", delay=10, date_sep='_', date_template="%Y-%m-%dT%H:%M:%S", watched=["modified"]):
+def flicksave(target, operators=None, delay=10, watched=["modified"]):
     """Start the watch thread."""
     # Handle files specified without a directory.
     root = os.path.dirname(target)
@@ -210,9 +216,9 @@ def flicksave(target, operators=None, save_dir=".", delay=10, date_sep='_', date
         root = '.'
     target = os.path.join(root,target)
 
-    flicker = Flicker(target, save_dir, delay, date_sep, date_template)
+    flicker = Flicker(target, delay)
 
-    handler = Handler(target, operators, flicker, watched)
+    handler = Handler(operators, flicker, watched)
 
     # Start the watch thread.
     observer = Observer()
@@ -279,35 +285,47 @@ if __name__=="__main__":
                'WARNING':logging.WARNING,
                'ERROR'  :logging.ERROR }
 
-    # parser.add_argument("-n","--no-save", action="store_true",
-        # help="Do not copy the file (useful if you only want to run another command).")
 
-    available = {
+    # TODO HERE: keep help in existing, put instance in available
+    existing = {
         "save":
-            ("Save a snapshot of the target file.",
-            Save()),
+            ["Save a snapshot of the target file.",
+            None],
         "inkscape":
-            ("Save a PNG snapshot of the file, using inkscape.",
-             Command("inkscape {target} --without-gui --export-png={flick} --export-area-page", "png")),
+            ["Save a PNG snapshot of the file, using inkscape.",
+            None],
         "git":
-            ("Commit the target file if it has been modified (the repository should be set-up).",
-             Command("git add {target} ; git commit -m 'Automatic flicksave commit: {flick}'")),
+            ["Commit the target file if it has been modified [the repository should be set-up].",
+             None],
          "log":
-             ("Log when the target file is modified.",
-             Log()),
+             ["Log when the target file is modified.",
+             None],
     }
 
     def help(name):
-        return available[name][0]
+        return existing[name][0]
     def instance(name):
-        return available[name][1]
+        return existing[name][1]
 
-    for name in available:
+    for name in existing:
         parser.add_argument("--"+name, help=help(name), action="store_true")
 
     asked = parser.parse_args()
 
     logging.basicConfig(level=log_as[asked.verbose], format='%(asctime)s -- %(message)s', datefmt=asked.template)
+
+    available = existing;
+
+    available["save"][1] = Save(asked.directory, asked.separator, asked.template)
+    available["inkscape"][1] = Command("inkscape {target} --without-gui --export-png={flick} --export-area-page", "png")
+    available["git"][1] = Command("git add {target} ; git commit -m 'Automatic flicksave commit: {flick}'")
+    available["log"][1] = Log()
+
+    if __debug__:
+        for op in existing:
+            assert op in available
+        for op in available:
+            assert op in existing
 
     logging.debug("Available operators:")
     for name in available:
@@ -332,5 +350,5 @@ if __name__=="__main__":
         logging.debug("\t%s", op)
 
     # Start it.
-    flicksave(asked.target, operators, asked.directory, asked.delay, asked.separator, asked.template, asked.events)
+    flicksave(asked.target, operators, asked.delay, asked.events)
 
