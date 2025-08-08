@@ -19,11 +19,33 @@ def last_of(us):
 
 
 class Flick:
+    def __repr__(self):
+        return f"Flick({self.save_dir},{self.target},{self.date_sep},{self.date},{self.ext})"
+
+    def as_file(self):
+        # Assemble the flick properties as if it was a file.
+        # Current date with second precision (i.e. without micro-seconds).
+        tag = self.date.isoformat().split(".")[0]
+        name,ext = os.path.splitext(self.target)
+        if self.ext:
+            ext = self.ext
+        flickname = name + self.date_sep + tag + ext
+        return os.path.join(save_dir, flickname)
+
+    def __init__(self, target, date, save_dir=".", date_sep='_', ext = None):
+        self.target = target
+        self.date = date
+        self.date_sep = date_sep
+        self.save_dir = save_dir
+        self.ext = ext
+
+
+class Flicker:
     """Build a new timestamped file name."""
-    def __init__(self, target, save_dir=".", delay=10, stamp_sep='_', date_template="%Y-%m-%dT%H:%M:%S"):
+    def __init__(self, target, save_dir=".", delay=10, date_sep='_', date_template="%Y-%m-%dT%H:%M:%S"):
         self.target = target
         self.date_template = date_template
-        self.date_sep = stamp_sep
+        self.date_sep = date_sep
         self.save_dir = save_dir
         self.delay = delay
 
@@ -33,16 +55,18 @@ class Flick:
         for k in self.fields:
             self.glob_template = self.glob_template.replace("%"+k,'?'*self.fields[k])
 
+        self.last_date = self.find_last_save()
+
     def __iter__(self):
         return self
 
-    def make(self, save_dir, name, date, ext):
-        # Current date with second precision (i.e. without micro-seconds).
-        tag = date.isoformat().split(".")[0]
-        flick = name + self.date_sep + tag + ext
-        return os.path.join(save_dir, flick)
+    # def make(self, save_dir, name, date, ext):
+    #     # Current date with second precision (i.e. without micro-seconds).
+    #     tag = date.isoformat().split(".")[0]
+    #     flickname = name + self.date_sep + tag + ext
+    #     return os.path.join(save_dir, flickname)
 
-    def next(self):
+    def find_last_save(self):
         full = os.path.expanduser(self.target)
         head = os.path.basename(full)
         name,ext = os.path.splitext(head)
@@ -53,9 +77,6 @@ class Flick:
         existing = glob.glob(os.path.join(self.save_dir,pattern))
         logging.debug("Matching files: %s", existing)
 
-        date_now = datetime.datetime.now()
-        logging.debug("Current date: %s", date_now.isoformat())
-
         if existing:
             last = last_of(sorted(existing))
             root,ext = os.path.splitext(last)
@@ -63,21 +84,51 @@ class Flick:
             # As we globbed the pattern, no need for complex regexp.
             last_tag = last_of(last_name.split(self.date_sep))
             last_date = datetime.datetime.strptime(last_tag, self.date_template)
-
             logging.debug("Last flick at: %s", last_date.isoformat())
+            return last_date
 
-            assert(last_date <= date_now)
-            if date_now - last_date < datetime.timedelta(seconds=self.delay):
-                logging.debug("Current delta: %s < %s", date_now - last_date,datetime.timedelta(seconds=self.delay))
-                return self.make(self.save_dir,name,last_date,ext)
+        logging.debug("No previous save found.")
+        return None
 
-        return self.make(self.save_dir,name,date_now,ext)
+    def next(self):
+        name,ext = os.path.splitext(self.target)
+        date_now = datetime.datetime.now()
+
+        if self.last_date:
+            logging.debug("Current date: %s", date_now.isoformat())
+            assert(self.last_date <= date_now)
+
+            if date_now - self.last_date < datetime.timedelta(seconds=self.delay):
+                logging.debug("Current delta: %s < %s", date_now - self.last_date,datetime.timedelta(seconds=self.delay))
+                return Flick(self.target, self.last_date, self.save_dir, self.date_sep, ext)
+
+        return Flick(self.target, date_now, self.save_dir, self.date_sep,ext)
 
 
 class Operator:
     """Interface example for an Operator (but can actually be any callable with the same signature)."""
     def __call__(self, target, flick, alt_ext = None):
         raise NotImplemented
+
+
+class Save(Operator):
+    """Make a copy of the target file.
+    Takes care to create a missing directory if necessary."""
+    def __repr__(self):
+        return "Save()"
+
+    def __call__(self, target, flick, alt_ext = None):
+        flickfile = flick.as_file()
+        logging.info("Copy %s as %s", target, flickfile)
+        try:
+            shutil.copy(target, flickfile)
+        except FileNotFoundError:
+            logging.warning('WARNING create missing directory: %s',os.path.dirname(flickfile))
+            os.mkdir(os.path.dirname(flickfile))
+            shutil.copy(target, flickfile)
+            #FIXME more error handling?
+        except:
+            logging.error("ERROR while copying file: %s", sys.exc_info()[0])
 
 
 class Command(Operator):
@@ -99,7 +150,7 @@ class Command(Operator):
         # Change the extension, if asked.
         flickname,flickext = os.path.splitext(flick)
         if self.alt_ext:
-            flick = "{}.{}".format(flickname,self.alt_ext)
+            flick.ext = self.alt_ext
 
         cmd = self.cmd.format(target=target,flick=flick)
         logging.info("Run command: %s", cmd )
@@ -117,38 +168,19 @@ class Command(Operator):
         logging.debug("Command ended.")
 
 
-class Save(Operator):
-    """Make a copy of the target file.
-    Takes care to create a missing directory if necessary."""
-    def __repr__(self):
-        return "Save()"
-
-    def __call__(self, target, flickname):
-        logging.info("Copy %s as %s", target, flickname)
-        try:
-            shutil.copy(target, flickname)
-        except FileNotFoundError:
-            logging.warning('WARNING create missing directory: %s',os.path.dirname(flickname))
-            os.mkdir(os.path.dirname(flickname))
-            shutil.copy(target, flickname)
-            #FIXME more error handling?
-        except:
-            logging.error("ERROR while copying file: %s", sys.exc_info()[0])
-
-
 class Log(Operator):
     def __repr__(self):
         return "Log()"
 
     def __call__(self, target, flick, alt_ext = None):
-        logging.info("Event(s) seen for {}".format(target,flick))
+        logging.info("Event(s) seen for {}: {}".format(target,flick))
 
 
 class Handler(FileSystemEventHandler):
     """Event handler, will call a sequence of operators at each event matching the target."""
-    def __init__(self, target, operators, flick, watched_types = ["modified"] ):
+    def __init__(self, target, operators, flicker, watched_types = ["modified"] ):
         self.target = target
-        self.flick = flick
+        self.flicker = flicker
         self.ops = operators
         self.watched_types = watched_types
 
@@ -159,17 +191,18 @@ class Handler(FileSystemEventHandler):
         # so we filter it in this event handler.
         if (not event.is_directory) and os.path.abspath(event.src_path) == os.path.abspath(self.target) and event.event_type in self.watched_types:
             logging.debug("Handle event")
-            flickname = self.flick.next()
-            logging.debug("New flick for %s: %s", event.src_path, flickname)
+            flick = self.flicker.next()
+            logging.debug("New flicker for %s: %s", event.src_path, flick)
 
             for op in self.ops:
                 logging.debug("Calling %s", op)
-                op(os.path.abspath(event.src_path), os.path.abspath(flickname))
+                # op(os.path.abspath(event.src_path), os.path.abspath(flickname))
+                op(os.path.abspath(event.src_path),flick)
         else:
             logging.debug("Not handling event: file={}, is_directory={}, watched_types={}".format(os.path.abspath(event.src_path),event.is_directory, self.watched_types))
 
 
-def flicksave(target, operators=None, save_dir=".", delay=10, stamp_sep='_', date_template="%Y-%m-%dT%H:%M:%S", watched=["modified"]):
+def flicksave(target, operators=None, save_dir=".", delay=10, date_sep='_', date_template="%Y-%m-%dT%H:%M:%S", watched=["modified"]):
     """Start the watch thread."""
     # Handle files specified without a directory.
     root = os.path.dirname(target)
@@ -177,9 +210,9 @@ def flicksave(target, operators=None, save_dir=".", delay=10, stamp_sep='_', dat
         root = '.'
     target = os.path.join(root,target)
 
-    flick = Flick(target, save_dir, delay, stamp_sep, date_template)
+    flicker = Flicker(target, save_dir, delay, date_sep, date_template)
 
-    handler = Handler(target, operators, flick, watched)
+    handler = Handler(target, operators, flicker, watched)
 
     # Start the watch thread.
     observer = Observer()
