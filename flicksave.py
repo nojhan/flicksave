@@ -96,7 +96,6 @@ class Command(Operator):
         return "Command(\"{}\",\"{}\")".format(self.cmd,self.alt_ext)
 
     def __call__(self, target, flick):
-
         # Change the extension, if asked.
         flickname,flickext = os.path.splitext(flick)
         if self.alt_ext:
@@ -109,9 +108,9 @@ class Command(Operator):
             proc = subprocess.run(cmd, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         except subprocess.CalledProcessError:
             logging.error("ERROR while calling command")
-            logging.debug("\tReturn code: %s",proc.returncode)
-            logging.info("\tOut: %s",proc.stdout)
-            logging.info("\tErr: %s",proc.stderr)
+            logging.error("\tReturn code: %s",proc.returncode)
+            logging.error("\tOut: %s",proc.stdout)
+            logging.error("\tErr: %s",proc.stderr)
         except:
             logging.error("ERROR while calling subprocess: %s", sys.exc_info()[0])
 
@@ -119,42 +118,46 @@ class Command(Operator):
 
 
 class Save(Operator):
-   """Make a copy of the target file.
-   Takes care to create a missing directory if necessary."""
-   def __repr__(self):
-       return "Save()"
+    """Make a copy of the target file.
+    Takes care to create a missing directory if necessary."""
+    def __repr__(self):
+        return "Save()"
 
-   def __call__(self, target, flickname):
-       logging.info("Copy %s as %s", target, flickname)
-       try:
-           shutil.copy(target, flickname)
-       except FileNotFoundError:
-           logging.warning('WARNING create missing directory: %s',os.path.dirname(flickname))
-           os.mkdir(os.path.dirname(flickname))
-           shutil.copy(target, flickname)
-           #FIXME more error handling?
-       except:
-           logging.error("ERROR while copying file: %s", sys.exc_info()[0])
+    def __call__(self, target, flickname):
+        logging.info("Copy %s as %s", target, flickname)
+        try:
+            shutil.copy(target, flickname)
+        except FileNotFoundError:
+            logging.warning('WARNING create missing directory: %s',os.path.dirname(flickname))
+            os.mkdir(os.path.dirname(flickname))
+            shutil.copy(target, flickname)
+            #FIXME more error handling?
+        except:
+            logging.error("ERROR while copying file: %s", sys.exc_info()[0])
+
+
+class Log(Operator):
+    def __repr__(self):
+        return "Log()"
+
+    def __call__(self, target, flick, alt_ext = None):
+        logging.info("Event(s) seen for {}".format(target,flick))
 
 
 class Handler(FileSystemEventHandler):
     """Event handler, will call a sequence of operators at each event matching the target."""
-    def __init__(self, target, operators, flick = None):
+    def __init__(self, target, operators, flick, watched_types = ["modified"] ):
         self.target = target
-
-        if not flick:
-            self.flick = Flick(target)
-        else:
-            self.flick = flick
-
+        self.flick = flick
         self.ops = operators
+        self.watched_types = watched_types
 
     def on_any_event(self, event):
         logging.debug("Received event %s",event)
         super(Handler,self).on_any_event(event)
-        # Watchdog cannot watch single files (FIXME bugreport),
+        # Watchdog cannot watch single files (FIXME bugreport?),
         # so we filter it in this event handler.
-        if (not event.is_directory) and os.path.abspath(event.src_path) == os.path.abspath(self.target):
+        if (not event.is_directory) and os.path.abspath(event.src_path) == os.path.abspath(self.target) and event.event_type in self.watched_types:
             logging.debug("Handle event")
             flickname = self.flick.next()
             logging.debug("New flick for %s: %s", event.src_path, flickname)
@@ -162,9 +165,11 @@ class Handler(FileSystemEventHandler):
             for op in self.ops:
                 logging.debug("Calling %s", op)
                 op(os.path.abspath(event.src_path), os.path.abspath(flickname))
+        else:
+            logging.debug("Not handling event: file={}, is_directory={}, watched_types={}".format(os.path.abspath(event.src_path),event.is_directory, self.watched_types))
 
 
-def flicksave(target, operators=None, save_dir=".", delay=10, stamp_sep='_', date_template="%Y-%m-%dT%H:%M:%S"):
+def flicksave(target, operators=None, save_dir=".", delay=10, stamp_sep='_', date_template="%Y-%m-%dT%H:%M:%S", watched=["modified"]):
     """Start the watch thread."""
     # Handle files specified without a directory.
     root = os.path.dirname(target)
@@ -174,11 +179,7 @@ def flicksave(target, operators=None, save_dir=".", delay=10, stamp_sep='_', dat
 
     flick = Flick(target, save_dir, delay, stamp_sep, date_template)
 
-    # At least, save a copy of the file.
-    if not operators:
-        operators = [Save()]
-
-    handler = Handler(target, operators, flick)
+    handler = Handler(target, operators, flick, watched)
 
     # Start the watch thread.
     observer = Observer()
@@ -196,8 +197,26 @@ if __name__=="__main__":
     import sys
     import argparse
 
+    class SaneHelpFormatter(
+        argparse.RawTextHelpFormatter, argparse.ArgumentDefaultsHelpFormatter
+    ):
+        pass
+
     # With default values in help message.
-    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser = argparse.ArgumentParser(formatter_class=SaneHelpFormatter,
+        description="Perofm an action each time a file is touched. For example: make a copy of a file each time it is modified.",
+        epilog="""Examples:
+    Copy the file each time it is modified:
+        flicksave --save my_file
+    Copy the file in a subdirectory each time it is modified:
+        flicksave --directory snapshots --save my_file
+    Export a PNG from a watched SVG, each time you hit 'save' in inkscape:
+        flicksave --inkscape my_file
+    Git commit the file if it has been modified, but not before 30 seconds after the previous commit:
+        flicksave --git --delay 30 my_file
+    Copy the file each time is is opened or closed:
+        flicksave --events opened closed --save my_file
+    """)
 
     # Required argument.
     parser.add_argument("target",
@@ -206,25 +225,43 @@ if __name__=="__main__":
     # Optional arguments.
     parser.add_argument("-d","--directory", default='.',
         help="The directory in which to copy the saved versions.")
+
     parser.add_argument("-y","--delay",     default=10, type=int,
         help="The minimum time (in seconds) between the creation of different saved files.")
+
+    parser.add_argument("-e","--events", default="modified", nargs="*",
+        choices = ["opened", "moved", "deleted", "created", "modified", "closed"],
+        help="The event(s) on which you want to perform the action.")
+
     parser.add_argument("-s","--separator", default='_',
         help="Separator character between the file name and the date stamp.")
+
     parser.add_argument("-t","--template",  default='%Y-%m-%dT%H:%M:%S',
         help="Template of the date stamp.")
-    parser.add_argument("-v","--verbose", choices=['DEBUG','INFO','WARNING','ERROR'], default='WARNING',
+
+    parser.add_argument("-v","--verbose", choices=['DEBUG','INFO','WARNING','ERROR'], default='INFO',
         help="Verbosity level.")
     log_as = { 'DEBUG'  :logging.DEBUG,
                'INFO'   :logging.INFO,
                'WARNING':logging.WARNING,
                'ERROR'  :logging.ERROR }
-    parser.add_argument("-n","--no-save", action="store_true",
-        help="Do not copy the file (useful if you only want to run another command).")
+
+    # parser.add_argument("-n","--no-save", action="store_true",
+        # help="Do not copy the file (useful if you only want to run another command).")
 
     available = {
+        "save":
+            ("Save a snapshot of the target file.",
+            Save()),
         "inkscape":
             ("Save a PNG snapshot of the file, using inkscape.",
-             Command("inkscape {target} --without-gui --export-png={flick} --export-area-page", "png"))
+             Command("inkscape {target} --without-gui --export-png={flick} --export-area-page", "png")),
+        "git":
+            ("Commit the target file if it has been modified (the repository should be set-up).",
+             Command("git add {target} ; git commit -m 'Automatic flicksave commit: {flick}'")),
+         "log":
+             ("Log when the target file is modified.",
+             Log()),
     }
 
     def help(name):
@@ -243,19 +280,24 @@ if __name__=="__main__":
     for name in available:
         logging.debug("\t%s",name)
 
-    if asked.no_save:
-        operators = []
-    else:
-        operators = [Save()]
-
+    operators = []
     requested = vars(asked)
     for it in [iz for iz in requested if iz in available and requested[iz]==True]:
         operators.append(instance(it))
+
+    if len(operators) == 0:
+        logging.warning(
+            "WARNING: you did not asked for any snapshot command, "
+             "I will only log when you save the file, but not perform any action. "
+             "Use one of the following option if you want me to do something: "
+             +", ".join(["--"+str(k) for k in available.keys()])
+         )
+        operators.append(Log())
 
     logging.debug("Used operators:")
     for op in operators:
         logging.debug("\t%s", op)
 
     # Start it.
-    flicksave(asked.target, operators, asked.directory, asked.delay, asked.separator, asked.template)
+    flicksave(asked.target, operators, asked.directory, asked.delay, asked.separator, asked.template, asked.events)
 
