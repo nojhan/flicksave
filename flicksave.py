@@ -27,17 +27,6 @@ class Flick:
     def __repr__(self):
         return f"Flick({self.date},{self.target},{self.ext})"
 
-    def as_file(self):
-        # Assemble the flick properties as if it was a file.
-        # Current date with second precision (i.e. without micro-seconds).
-        tag = self.date.isoformat().split(".")[0]
-        name,ext = os.path.splitext(self.target)
-        if self.ext:
-            ext = self.ext
-        flickname = name + self.date_sep + tag + ext
-        return os.path.join(save_dir, flickname)
-
-
 class Flicker:
     """Build a new timestamped file name."""
     def __init__(self, target, delay=10):
@@ -65,6 +54,7 @@ class Flicker:
 
 class Operator:
     """Interface example for an Operator (but can actually be any callable with the same signature)."""
+
     def __call__(self, target, flick, alt_ext = None):
         raise NotImplemented
 
@@ -77,13 +67,24 @@ class Save(Operator):
 
     def __init__(self, save_dir, date_sep, date_template):
         self.date_template = date_template
-        self.date_sep = date_sep
         self.save_dir = save_dir
+        self.date_sep = date_sep
         # Make a glob search expression with the date template.
         self.fields = {'Y':4,'m':2,'d':2,'H':2,'M':2,'S':2}
         self.glob_template = self.date_template
         for k in self.fields:
             self.glob_template = self.glob_template.replace("%"+k,'?'*self.fields[k])
+
+    def as_file(self, flick):
+        # Assemble the flick properties as if it was a file.
+        # Current date with second precision (i.e. without micro-seconds).
+        tag = flick.date.isoformat().split(".")[0]
+        name,ext = os.path.splitext(flick.target)
+        if flick.ext:
+            ext = flick.ext
+        flickname = name + self.date_sep + tag + ext
+        return os.path.join(self.save_dir, flickname)
+
 
     def find_last_save(self, target):
         full = os.path.expanduser(target)
@@ -110,7 +111,7 @@ class Save(Operator):
         return None
 
     def save(self, flick):
-        flickfile = flick.as_file()
+        flickfile = self.as_file(flick)
         logging.info("Copy %s as %s", target, flickfile)
         try:
             shutil.copy(target, flickfile)
@@ -139,7 +140,7 @@ class Save(Operator):
             save(flick)
 
 
-class Command(Operator):
+class Command(Save):
     """Run a user-defined command.
     Takes the target and the flick as argument.
     The command should be a python 3 format string.
@@ -147,21 +148,23 @@ class Command(Operator):
     You can omit one of the named arguments.
     For example: 'touch {flick}'"""
 
-    def __init__(self, command, alt_ext = None):
+    def __init__(self, command, save_dir = ".", date_sep = "_", date_template = '%Y-%m-%dT%H:%M:%S', alt_ext = None):
+        super(type(self),self).__init__(save_dir, date_sep, date_template)
+
         self.cmd = command
         self.alt_ext = alt_ext
 
     def __repr__(self):
-        return "Command(\"{}\",\"{}\")".format(self.cmd,self.alt_ext)
+        return f"Command(\"{self.cmd}\",{self.save_dir}, {self.date_sep},{self.date_template},{self.alt_ext})"
 
     def __call__(self, target, flick):
         # Change the extension, if asked.
-        flickname,flickext = os.path.splitext(flick)
+        flickname,flickext = os.path.splitext(flick.target)
         if self.alt_ext:
             flick.ext = self.alt_ext
 
-        cmd = self.cmd.format(target=target,flick=flick)
-        logging.info("Run command: %s", cmd )
+        cmd = self.cmd.format(target=flick.target,flick=self.as_file(flick))
+        logging.info("Run command: %s", cmd)
         try:
             # We want the shell because we may call shell command or need environment variables.
             proc = subprocess.run(cmd, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -315,9 +318,8 @@ if __name__=="__main__":
     logging.basicConfig(level=log_as[asked.verbose], format='%(asctime)s -- %(message)s', datefmt=asked.template)
 
     available = existing;
-
     available["save"][1] = Save(asked.directory, asked.separator, asked.template)
-    available["inkscape"][1] = Command("inkscape {target} --without-gui --export-png={flick} --export-area-page", "png")
+    available["inkscape"][1] = Command("inkscape {target} --without-gui --export-png={flick} --export-area-page", asked.directory, asked.separator, asked.template, "png")
     available["git"][1] = Command("git add {target} ; git commit -m 'Automatic flicksave commit: {flick}'")
     available["log"][1] = Log()
 
