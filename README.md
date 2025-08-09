@@ -64,25 +64,25 @@ For instance, with a target file named `test.svg`, a snapshot will look like `te
 
 Just start FlickSave with your target file as an argument:
 
-    $ ./flicksave.py --save my_file.svg
+    $ flicksave --save my_file.svg
 
 Then edit your file and save it.
 As usual, hit `Ctrl-C` (or close the terminal) to stop FlickSave.
 
 If you want to specify a directory in which to put your snapshots,  with no more than one separate file every minute:
 
-    $ ./flicksave.py --inkscape -d flicksave -y 60 my_file.svg
+    $ flicksave --inkscape -d flicksave -y 60 my_file.svg
 
 You may want to save both the file before and after it was modified by any
 program:
 
-    $ ./flicksave.py --save --events opened closed --no-overwrite my_file
+    $ flicksave --save --events opened closed --no-overwrite my_file
 
 If you want to see what's going on and when the action(s) are called,
 ask it to be more verbose:
 
     $ touch test.txt
-    $ ./flicksave.py --log -v INFO test.txt &
+    $ flicksave --log -v INFO test.txt &
     [1] 4303
     echo "." >> test.txt
     2017-11-29T21:15:51 -- ./test.txt -> ./test_2017-11-29T21:15:51.txt

@@ -266,6 +266,9 @@ if __name__=="__main__":
         flicksave --git --delay 30 my_file
     Copy the file each time is is opened or closed:
         flicksave --events opened closed --save my_file
+    You may want to save both the file before and after it was modified by any
+    program:
+        flicksave --save --events opened closed --no-overwrite my_file
     """)
 
     # Required argument.
