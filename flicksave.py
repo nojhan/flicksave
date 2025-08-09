@@ -9,6 +9,15 @@ import logging
 import datetime
 import subprocess
 
+try:
+    from sdbus_block.notifications import FreedesktopNotifications
+except Exception as e:
+    logging.error(e)
+    logging.error("Suitable `sdbus` module cannot be loaded, the --dbus action is disabled.")
+    HAS_DBUS = False
+else:
+    HAS_DBUS = True
+
 from watchdog.observers import Observer
 from watchdog.events import LoggingEventHandler
 from watchdog.events import FileSystemEventHandler
@@ -26,6 +35,7 @@ class Flick:
 
     def __repr__(self):
         return f"Flick({self.date},{self.target},{self.ext})"
+
 
 class Flicker:
     """Build a new timestamped file name."""
@@ -55,7 +65,7 @@ class Flicker:
 class Operator:
     """Interface example for an Operator (but can actually be any callable with the same signature)."""
 
-    def __call__(self, target, flick, alt_ext = None):
+    def __call__(self, target, flick, event, alt_ext = None):
         raise NotImplemented
 
 
@@ -132,7 +142,7 @@ class Save(Operator):
 
         self.last_date = self.find_last_save(self.flick.target)
 
-    def __call__(self, target, flick, alt_ext = None):
+    def __call__(self, target, flick, event, alt_ext = None):
         self.last_date = self.find_last_save(self.flick.target)
         if self.last_date:
             logging.debug("Current date: %s", date_now.isoformat())
@@ -165,7 +175,7 @@ class Command(Save):
     def __repr__(self):
         return f"Command(\"{self.cmd}\",{self.save_dir}, {self.date_sep},{self.date_template},{self.alt_ext})"
 
-    def __call__(self, target, flick):
+    def __call__(self, target, flick, event):
         # Change the extension, if asked.
         flickname,flickext = os.path.splitext(flick.target)
         if self.alt_ext:
@@ -191,8 +201,29 @@ class Log(Operator):
     def __repr__(self):
         return "Log()"
 
-    def __call__(self, target, flick, alt_ext = None):
-        logging.info("Event(s) seen for {}: {}".format(target,flick))
+    def __call__(self, target, flick, event, alt_ext = None):
+        logging.info(f"File {target} was {event.event_type}")
+
+
+if HAS_DBUS:
+    class DBus(Operator):
+        def __repr__(self):
+            return "Log()"
+
+        def __call__(self, target, flick, event, alt_ext = None):
+            logging.info("Event(s) seen for {}: {}".format(target,flick))
+            notif = FreedesktopNotifications()
+            hints = notif.create_hint(
+                urgency = 0,
+                category = "transfer", # See https://specifications.freedesktop.org/notification-spec/latest/categories.html
+            )
+            # app_name='', replaces_id=0, app_icon='', summary='', body='', actions=[], hints={}, expire_timeout=-1
+            notif.notify(
+                app_name = "FlickSave",
+                summary = f"File {target} was {event.event_type}",
+                body = str(flick),
+                hints = hints,
+            )
 
 
 class Handler(FileSystemEventHandler):
@@ -214,7 +245,7 @@ class Handler(FileSystemEventHandler):
 
             for op in self.ops:
                 logging.debug("Calling %s", op)
-                op(os.path.abspath(event.src_path), flick)
+                op(os.path.abspath(event.src_path), flick, event)
         else:
             logging.debug("Not handling event: file={}, is_directory={}, watched_types={}".format(os.path.abspath(event.src_path),event.is_directory, self.watched_types))
 
@@ -317,6 +348,10 @@ if __name__=="__main__":
              ["Log when the target file is modified.",
              None],
     }
+    if HAS_DBUS:
+        existing["dbus"] = \
+            ["Send a notification (on the system's D-Bus).",
+            None]
 
     def help(name):
         return existing[name][0]
@@ -336,6 +371,8 @@ if __name__=="__main__":
     available["inkscape"][1] = Command("inkscape {target} --without-gui --export-png={flick} --export-area-page", asked.directory, asked.separator, asked.template, "png", asked.no_overwrite)
     available["git"][1] = Command("git add {target} ; git commit -m 'Automatic flicksave commit: {flick}'")
     available["log"][1] = Log()
+    if HAS_DBUS:
+        available["dbus"][1] = DBus()
 
     if __debug__:
         # Check that both available and existing are aligned.

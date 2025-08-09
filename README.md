@@ -26,6 +26,7 @@ Currently, FlickSave can perform the following actions:
 - `--inkscape`: export a timestamped PNG of a watched SVG,
 - `--git`: commit the modifications of the watched file,
 - `--log`: print a message stating that the watched file was touched.
+- `--dbus`: send a notification to the system's D-Bus.
 
 You can pass multiple actions.
 For instance, you can both export a PNG and do a Git commit.
@@ -36,7 +37,7 @@ For instance, with a target file named `test.svg`, a snapshot will look like `te
 
 ### Synopsis
 
-`flicksave.py [-h] [--save] [--inkscape] [--git] [--log] [-d DIRECTORY] [-y DELAY] [-s SEPARATOR] [-t TEMPLATE] [-w] [-v {DEBUG,INFO,WARNING,ERROR}] [-e {opened,moved,deleted,created,modified,closed}...] target`
+`flicksave.py [-h] [--save] [--inkscape] [--git] [--log] [--dbus] [-d DIRECTORY] [-y DELAY] [-s SEPARATOR] [-t TEMPLATE] [-w] [-v {DEBUG,INFO,WARNING,ERROR}] [-e {opened,moved,deleted,created,modified,closed}...] target`
 
 ### Required positional argument
 
@@ -49,6 +50,7 @@ For instance, with a target file named `test.svg`, a snapshot will look like `te
 * `--inkscape`: Save a PNG snpashot of the watched SVG file.
 * `--git`: Commit the watched file if it has been modified.
 * `--log`: Print a message when the watched file is touched.
+* `--dbus`: Send a notification to the system's D-Bus.
 * `-d DIRECTORY`, `--directory DIRECTORY`: The directory in which to copy the saved versions.  (default: .)
 * `-y DELAY`, `--delay DELAY`: The minimum time (in seconds) between the creation of different saved files. (default: 10)
 * `-s SEPARATOR`, `--separator SEPARATOR`: Separator character between the file name and the date stamp. (default: _)
