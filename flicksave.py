@@ -65,10 +65,12 @@ class Save(Operator):
     def __repr__(self):
         return f"Save({self.last_date})"
 
-    def __init__(self, save_dir, date_sep, date_template):
+    def __init__(self, save_dir, date_sep, date_template, no_overwrite = False):
         self.date_template = date_template
         self.save_dir = save_dir
         self.date_sep = date_sep
+        self.no_overwrite = no_overwrite
+
         # Make a glob search expression with the date template.
         self.fields = {'Y':4,'m':2,'d':2,'H':2,'M':2,'S':2}
         self.glob_template = self.date_template
@@ -84,7 +86,6 @@ class Save(Operator):
             ext = flick.ext
         flickname = name + self.date_sep + tag + ext
         return os.path.join(self.save_dir, flickname)
-
 
     def find_last_save(self, target):
         full = os.path.expanduser(target)
@@ -112,6 +113,12 @@ class Save(Operator):
 
     def save(self, flick):
         flickfile = self.as_file(flick)
+        if self.no_overwrite and os.path.is_file(flickfile):
+            index = 1
+            while os.path.is_file(flickfile):
+                name,ext = os.path.splitext(flickfile)
+                flickfile = name+self.date_sep+index+ext
+                index += 1
         logging.info("Copy %s as %s", target, flickfile)
         try:
             shutil.copy(target, flickfile)
@@ -148,11 +155,12 @@ class Command(Save):
     You can omit one of the named arguments.
     For example: 'touch {flick}'"""
 
-    def __init__(self, command, save_dir = ".", date_sep = "_", date_template = '%Y-%m-%dT%H:%M:%S', alt_ext = None):
+    def __init__(self, command, save_dir = ".", date_sep = "_", date_template = '%Y-%m-%dT%H:%M:%S', alt_ext = None, no_overwrite = False):
         super(type(self),self).__init__(save_dir, date_sep, date_template)
 
         self.cmd = command
         self.alt_ext = alt_ext
+        self.no_overwrite = no_overwrite
 
     def __repr__(self):
         return f"Command(\"{self.cmd}\",{self.save_dir}, {self.date_sep},{self.date_template},{self.alt_ext})"
@@ -281,6 +289,9 @@ if __name__=="__main__":
     parser.add_argument("-t","--template",  default='%Y-%m-%dT%H:%M:%S',
         help="Template of the date stamp.")
 
+    parser.add_argument("-w", "--no-overwrite", action="store_true",
+        help="Do not overwrite snapshots created at the same time, but append a number to their name.")
+
     parser.add_argument("-v","--verbose", choices=['DEBUG','INFO','WARNING','ERROR'], default='INFO',
         help="Verbosity level.")
     log_as = { 'DEBUG'  :logging.DEBUG,
@@ -289,7 +300,6 @@ if __name__=="__main__":
                'ERROR'  :logging.ERROR }
 
 
-    # TODO HERE: keep help in existing, put instance in available
     existing = {
         "save":
             ["Save a snapshot of the target file.",
@@ -317,13 +327,15 @@ if __name__=="__main__":
 
     logging.basicConfig(level=log_as[asked.verbose], format='%(asctime)s -- %(message)s', datefmt=asked.template)
 
+    # Add instances, now that we have all parameters.
     available = existing;
-    available["save"][1] = Save(asked.directory, asked.separator, asked.template)
-    available["inkscape"][1] = Command("inkscape {target} --without-gui --export-png={flick} --export-area-page", asked.directory, asked.separator, asked.template, "png")
+    available["save"][1] = Save(asked.directory, asked.separator, asked.template, asked.no_overwrite)
+    available["inkscape"][1] = Command("inkscape {target} --without-gui --export-png={flick} --export-area-page", asked.directory, asked.separator, asked.template, "png", asked.no_overwrite)
     available["git"][1] = Command("git add {target} ; git commit -m 'Automatic flicksave commit: {flick}'")
     available["log"][1] = Log()
 
     if __debug__:
+        # Check that both available and existing are aligned.
         for op in existing:
             assert op in available
         for op in available:
