@@ -1,7 +1,7 @@
 FlickSave -- automatic snapshot each time you hit save
 ======================================================
 
-FlickSave automagically perform an action each time you touch a watched file.
+FlickSave automagically perform an action each time you touch watched files.
 
 For instance, FlickSave can backup a timestamped snapshot of a file that you edit with any program, without getting in your way.
 
@@ -15,29 +15,30 @@ You can even do an automatic Git commit the same way.
 
 ## Usage
 
-You should start FlickSave with the file you want to save as an argument
-and let it run during the time you want to let it perform your action.
-Once started, it will watch for modifications on the given file
+You should start FlickSave with the files you want to save as argument(s)
+and let it run during the time you want to perform your action(s).
+Once started, it will watch for modifications on the given file(s)
 and, for instance, create the snapshots by himself each time something happens.
 
 Currently, FlickSave can perform the following actions:
 
-- `--save`: save a timestamped  snapshot of the watched file,
-- `--inkscape`: export a timestamped PNG of a watched SVG,
-- `--git`: commit the modifications of the watched file,
-- `--log`: print a message stating that the watched file was touched.
+- `--save`: save a timestamped  snapshot of the watched file(s),
+- `--inkscape`: export a timestamped PNG(s) of a watched SVG(s),
+- `--git`: commit the modifications of the watched file(s),
+- `--log`: print a message stating that the watched file(s) were touched.
 - `--dbus`: send a notification to the system's D-Bus.
 
 You can pass multiple actions.
 For instance, you can both export a PNG and do a Git commit.
 
-By default, timestamped snapshots have the same name than the targeted file, with the addition of the timestamp.
+By default, timestamped snapshots have the same name than the targeted files,
+with the addition of the timestamp.
 For instance, with a target file named `test.svg`, a snapshot will look like `test_2017-11-28T21:02:59.svg`.
 
 
 ### Synopsis
 
-`flicksave.py [-h] [--save] [--inkscape] [--git] [--log] [--dbus] [-d DIRECTORY] [-y DELAY] [-s SEPARATOR] [-t TEMPLATE] [-w] [-v {DEBUG,INFO,WARNING,ERROR}] [-e {opened,moved,deleted,created,modified,closed}...] target`
+`flicksave.py [-h] [--save] [--inkscape] [--git] [--log] [--dbus] [-d DIRECTORY] [-y DELAY] [-s SEPARATOR] [-t TEMPLATE] [-w] [-v {DEBUG,INFO,WARNING,ERROR}] [-e {opened,moved,deleted,created,modified,closed}...] target [target ...]`
 
 ### Required positional argument
 
@@ -73,23 +74,33 @@ As usual, hit `Ctrl-C` (or close the terminal) to stop FlickSave.
 
 If you want to specify a directory in which to put your snapshots,  with no more than one separate file every minute:
 
-    $ flicksave --inkscape -d flicksave -y 60 my_file.svg
+    $ flicksave --inkscape --directory flicksave --delay 60 my_file.svg
+
+You can call sevral actions, for instance export a PNG and commit the source SVG:
+
+    $ flicksave --inkscape --git my_file.svg
+
+You can use your shell to create the file list:
+
+    $ flicksave --git *.py
+
+And even handle files in subdirectories:
+
+    $ flicksave --log */*.log
 
 You may want to save both the file before and after it was modified by any
 program:
 
     $ flicksave --save --events opened closed --no-overwrite my_file
 
-If you want to see what's going on and when the action(s) are called,
-ask it to be more verbose:
+You can export PNGs and commit their source across sub-directories,
+and be notified when it's done:
 
-    $ touch test.txt
-    $ flicksave --log -v INFO test.txt &
-    [1] 4303
-    echo "." >> test.txt
-    2017-11-29T21:15:51 -- ./test.txt -> ./test_2017-11-29T21:15:51.txt
-    $ kill 4303
-    [1]+  Complété              ./flicksave.py -v INFO test.txt
+    $ flicksave --inkscape --git --dbus --events closed */*.svg
+
+You can also prepare the list of files to watch by using a subcommand:
+
+    $ flicksave --log $(find . -type f -name *.png | grep -v test)
 
 
 ## Authors
