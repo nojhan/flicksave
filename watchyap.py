@@ -19,6 +19,8 @@ except Exception as e:
 else:
     HAS_DBUS = True
 
+from operator import attrgetter
+
 from watchdog.observers import Observer
 from watchdog.events import LoggingEventHandler
 from watchdog.events import FileSystemEventHandler
@@ -67,10 +69,10 @@ class Flicker:
 
 
 class Handler(FileSystemEventHandler):
-    """Event handler, will call a sequence of operators at each event matching the target."""
-    def __init__(self, operators, flicker, watched_events = ["modified"] ):
+    """Event handler, will call a sequence of actions at each event matching the target."""
+    def __init__(self, actions, flicker, watched_events = ["modified"] ):
         self.flicker = flicker
-        self.ops = operators
+        self.ops = actions
         self.watched_events = watched_events
 
     def on_any_event(self, event):
@@ -102,14 +104,14 @@ class Handler(FileSystemEventHandler):
                 logging.debug("Not handling event:" + ", ".join([i for i in [is_dir, is_not_target, is_not_watched] if i != ""]))
 
 
-class Operator:
-    """Interface example for an Operator (but can actually be any callable with the same signature)."""
+class Action:
+    """Interface example for an Action (but can actually be any callable with the same signature)."""
 
     def __call__(self, target, flick, event, alt_ext = None):
         raise NotImplemented
 
 
-class Save(Operator):
+class Save(Action):
     """Make a copy of the target file.
     Takes care to create a missing directory if necessary."""
     def __repr__(self):
@@ -209,7 +211,7 @@ class Command(Save):
     For example: 'touch {flick}'"""
 
     def __init__(self, command, save_dir = ".", date_sep = "_", date_template = '%Y-%m-%dT%H:%M:%S', alt_ext = None, no_overwrite = False):
-        super(type(self),self).__init__(save_dir, date_sep, date_template)
+        super(Command,self).__init__(save_dir, date_sep, date_template)
 
         self.cmd = command
         self.alt_ext = alt_ext
@@ -249,7 +251,7 @@ class Command(Save):
         logging.debug("Command ended.")
 
 
-class Log(Operator):
+class Log(Action):
     def __repr__(self):
         return "Log()"
 
@@ -258,9 +260,9 @@ class Log(Operator):
 
 
 if HAS_DBUS:
-    class DBus(Operator):
+    class DBus(Action):
         def __repr__(self):
-            return "Log()"
+            return "DBus()"
 
         def __call__(self, target, flick, event, alt_ext = None):
             logging.info(f"File {target} was {event.event_type}")
@@ -278,7 +280,7 @@ if HAS_DBUS:
             )
 
 
-def flicksave(globbed_targets, operators=None, delay=10, watched=["modified"]):
+def watchyap(globbed_targets, actions=None, delay=10, watched=["modified"]):
     """Start the watch thread."""
 
     targets = [os.path.abspath(p) for p in globbed_targets]
@@ -291,7 +293,7 @@ def flicksave(globbed_targets, operators=None, delay=10, watched=["modified"]):
 
     flicker = Flicker(targets, delay)
 
-    handler = Handler(operators, flicker, watched)
+    handler = Handler(actions, flicker, watched)
 
     # Start the watch thread.
     observer = Observer()
@@ -310,8 +312,13 @@ if __name__=="__main__":
     import sys
     import argparse
 
+    class SortingHelpFormatter(argparse.HelpFormatter):
+        def add_arguments(self, actions):
+            actions = sorted(actions, key=attrgetter('option_strings'))
+            super(SortingHelpFormatter, self).add_arguments(actions)
+
     class SaneHelpFormatter(
-        argparse.RawTextHelpFormatter, argparse.ArgumentDefaultsHelpFormatter
+        SortingHelpFormatter, argparse.RawTextHelpFormatter, argparse.ArgumentDefaultsHelpFormatter
     ):
         pass
 
@@ -323,18 +330,18 @@ if __name__=="__main__":
 
 Examples:
     Copy the file each time it is modified:
-        flicksave --save my_file
+        watchyap --save my_file
     Copy the file in a subdirectory each time it is modified:
-        flicksave --directory snapshots --save my_file
+        watchyap --directory snapshots --save my_file
     Export a PNG from a watched SVG, each time you hit 'save' in inkscape:
-        flicksave --inkscape my_file
+        watchyap --inkscape my_file
     Git commit the file if it has been modified, but not before 30 seconds after the previous commit:
-        flicksave --git --delay 30 my_file
+        watchyap --git --delay 30 my_file
     Copy the file each time is is opened or closed:
-        flicksave --events opened closed --save my_file
+        watchyap --events opened closed --save my_file
     You may want to save both the file before and after it was modified by any
     program:
-        flicksave --save --events opened closed --no-overwrite my_file
+        watchyap --save --events opened closed --no-overwrite my_file
     """)
 
     # Optional arguments.
@@ -367,7 +374,7 @@ Examples:
                'WARNING':logging.WARNING,
                'ERROR'  :logging.ERROR }
 
-    parser.add_argument("--version", action="store_true",
+    parser.add_argument("-V", "--version", action="store_true",
         help="Show program's version number and exit.")
 
     asked = parser.parse_known_args()[0]
@@ -430,7 +437,7 @@ Examples:
 
     if HAS_GIT:
         logging.debug("`git` command found")
-        available["git"][1] = Command("git add {target} ; git commit -m 'Automatic flicksave commit of {target} at {timestamp}'")
+        available["git"][1] = Command("git add {target} ; git commit -m 'Automatic watchyap commit of {target} at {timestamp}'")
     else:
         print("WARNING: `git` command not found, the --inkscape action is disabled.", file=sys.stderr)
 
@@ -463,7 +470,7 @@ Examples:
     for op in available:
         assert op in existing
 
-    logging.debug("Available operators:")
+    logging.debug("Available actions:")
     for name in available:
         logging.debug("\t%s",name)
 
@@ -475,27 +482,27 @@ Examples:
 
     asked = parser.parse_args()
 
-    operators = []
+    actions = []
     requested = vars(asked)
     def instance(name):
         return available[name][1]
     for it in [iz for iz in requested if iz in available and requested[iz]]:
-        operators.append(instance(it))
+        actions.append(instance(it))
 
-    if len(operators) == 0:
+    if len(actions) == 0:
         logging.warning(
             "WARNING: you did not asked for any snapshot command, "
              "I will only log when you save the file, but not perform any action. "
              "Use one of the following option if you want me to do something: "
              +", ".join(["--"+str(k) for k in available.keys()])
          )
-        operators.append(Log())
+        actions.append(Log())
 
-    logging.debug("Used operators:")
-    for op in operators:
+    logging.debug("Used actions:")
+    for op in actions:
         logging.debug("\t%s", op)
 
     # Start it.
     logging.debug(asked.targets)
-    flicksave(asked.targets, operators, asked.delay, asked.events)
+    watchyap(asked.targets, actions, asked.delay, asked.events)
 

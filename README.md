@@ -1,12 +1,12 @@
-FlickSave -- automatic snapshot each time you hit save
-======================================================
+WatchYap -- automatic action each time you hit save
+===================================================
 
-FlickSave automagically perform an action each time you touch watched files.
+WatchYap automagically perform an action each time you touch watched files.
 
-For instance, FlickSave can backup a timestamped snapshot of a file that you edit with any program, without getting in your way.
+For instance, WatchYap can backup a timestamped snapshot of a file that you edit with any program, without getting in your way.
 
 For example, each time you hit `Ctrl-S` within a drawing software,
-FlickSave will make a copy the current version of your file,
+WatchYap will make a copy the current version of your file,
 along with the precise date of this version.
 
 This may be useful for digital artists that want to prepare a time-lapse of their on-going work without having to think about it.
@@ -15,12 +15,12 @@ You can even do an automatic Git commit the same way.
 
 ## Usage
 
-You should start FlickSave with the files you want to save as argument(s)
+You should start WatchYap with the files you want to save as argument(s)
 and let it run during the time you want to perform your action(s).
 Once started, it will watch for modifications on the given file(s)
 and, for instance, create the snapshots by himself each time something happens.
 
-Currently, FlickSave can perform the following actions:
+Currently, WatchYap can perform the following actions:
 
 - `--save`,
 - `--inkscape`,
@@ -40,7 +40,7 @@ For instance, with a target file named `test.svg`, a snapshot will look like `te
 
 ### Synopsis
 
-`flicksave.py [-h] [--save] [--inkscape] [--git] [--log] [--dbus] [-d DIRECTORY] [-y DELAY] [-s SEPARATOR] [-t TEMPLATE] [-w] [-v {DEBUG,INFO,WARNING,ERROR}] [-e {opened,moved,deleted,created,modified,closed}...] target [target ...]`
+`watchyap.py [-h] [--save] [--inkscape] [--git] [--log] [--dbus] [-d DIRECTORY] [-y DELAY] [-s SEPARATOR] [-t TEMPLATE] [-w] [-v {DEBUG,INFO,WARNING,ERROR}] [-e {opened,moved,deleted,created,modified,closed}...] target [target ...]`
 
 ### Required positional argument
 
@@ -89,49 +89,49 @@ Other:
 
 ### Command line
 
-Just start FlickSave with your target file as an argument:
+Just start WatchYap with your target file as an argument:
 
-    $ flicksave --save my_file.svg
+    $ watchyap --save my_file.svg
 
 Then edit your file and save it.
-As usual, hit `Ctrl-C` (or close the terminal) to stop FlickSave.
+As usual, hit `Ctrl-C` (or close the terminal) to stop WatchYap.
 
 If you want to specify a directory in which to put your snapshots,  with no more than one separate file every minute:
 
-    $ flicksave --inkscape --directory flicksave --delay 60 my_file.svg
+    $ watchyap --inkscape --directory watchyap --delay 60 my_file.svg
 
 You can call sevral actions, for instance export a PNG and commit the source SVG:
 
-    $ flicksave --inkscape --git my_file.svg
+    $ watchyap --inkscape --git my_file.svg
 
 You can use your shell to create the file list:
 
-    $ flicksave --git *.py
+    $ watchyap --git *.py
 
 And even handle files in subdirectories:
 
-    $ flicksave --log */*.log
+    $ watchyap --log */*.log
 
 You may want to save both the file before and after it was modified by any
 program:
 
-    $ flicksave --save --events opened closed --no-overwrite my_file
+    $ watchyap --save --events opened closed --no-overwrite my_file
 
 You can export PNGs and commit their source across sub-directories,
 and be notified when it's done:
 
-    $ flicksave --inkscape --git --dbus --events closed */*.svg
+    $ watchyap --inkscape --git --dbus --events closed */*.svg
 
 You can also prepare the list of files to watch by using a subcommand:
 
-    $ flicksave --log $(find . -type f -name *.png | grep -v test)
+    $ watchyap --log $(find . -type f -name *.png | grep -v test)
 
 If you want to pass your own command:
 
-    $ flicksave --cmd "git commit -a -m 'whatever'" my_file
-    $ flicksave --cmd "git add {target} ; git commit -m 'Automated commit' ; git tag '{timestamp}'"
-    $ flicksave --cmd "echo '{flick}' > watching_pipe" *.log
-
+    $ watchyap --cmd "git commit -a -m 'whatever'" my_file
+    $ watchyap --cmd "git add {target} ; git commit -m 'Automated commit' ; git tag '{timestamp}'"
+    $ watchyap --cmd "echo '{flick}' > watching_pipe" *.log
+    $ watchyap --alt-ext .jpg --cmd "convert -antialias {target} {flick}" my_file.png
 
 ## Authors
 
