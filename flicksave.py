@@ -13,8 +13,6 @@ import subprocess
 try:
     from sdbus_block.notifications import FreedesktopNotifications
 except Exception as e:
-    print("WARNING:", e, file=sys.stderr)
-    print("WARNING: Suitable `sdbus` module cannot be loaded, the --dbus action is disabled.", file=sys.stderr)
     HAS_DBUS = False
 else:
     HAS_DBUS = True
@@ -317,7 +315,8 @@ if __name__=="__main__":
 
     # With default values in help message.
     parser = argparse.ArgumentParser(formatter_class=SaneHelpFormatter,
-        description="Perofm an action each time a file is touched. For example: make a copy of a file each time it is modified.",
+        add_help = False,
+        description="Perform an action each time a file is touched. For example: make a copy of a file each time it is modified.",
         epilog="""Examples:
     Copy the file each time it is modified:
         flicksave --save my_file
@@ -333,10 +332,6 @@ if __name__=="__main__":
     program:
         flicksave --save --events opened closed --no-overwrite my_file
     """)
-
-    # Required argument.
-    parser.add_argument("targets", nargs="+",
-        help="The files to save each time it's modified.")
 
     # Optional arguments.
     parser.add_argument("-d","--directory", default='.',
@@ -375,12 +370,6 @@ if __name__=="__main__":
         "save":
             ["Save a snapshot of the target files.",
             None],
-        "inkscape":
-            ["Save a PNG snapshot of the files, using inkscape.",
-            None],
-        "git":
-            ["Commit the target files if it has been modified [the repository should be set-up].",
-             None],
          "log":
              ["Log when the target files are touched.",
              None],
@@ -390,18 +379,23 @@ if __name__=="__main__":
             ["Send a notification (on the system's D-Bus).",
             None]
 
+    if shutil.which("git"):
+        HAS_GIT = True
+        existing["git"] = ["Commit the target files if it has been modified [the repository should be set-up].", None]
+    else:
+        HAS_GIT = False
+
+    if shutil.which("inkscape"):
+        HAS_INKSCAPE = True
+        existing["inkscape"] = ["Save a PNG snapshot of the files, using inkscape.", None]
+    else:
+        HAS_INKSCAPE = False
+
     if shutil.which("zenity") and os.environ.get('DISPLAY'):
         HAS_ZENITY = True
-        existing["zenity"] = ["Pop-up a dialog boz each time a file is touched.", None]
+        existing["zenity"] = ["Pop-up a dialog box each time a file is touched.", None]
     else:
         HAS_ZENITY = False
-        has_zen = ""
-        if not shutil.which("zenity"):
-            has_zen = "`zenity` command not found, "
-        has_X = ""
-        if not  os.environ.get('DISPLAY'):
-            has_X = "No graphical display found, "
-        logging.warning(has_X + has_zen + "the --zenity action is disabled.")
 
     def help(name):
         return existing[name][0]
@@ -409,7 +403,7 @@ if __name__=="__main__":
     for name in existing:
         parser.add_argument("--"+name, help=help(name), action="store_true")
 
-    asked = parser.parse_args()
+    asked = parser.parse_known_args()[0]
 
     logging.basicConfig(level=log_as[asked.verbose], format='%(asctime)s -- %(message)s', datefmt=asked.template)
 
@@ -418,16 +412,37 @@ if __name__=="__main__":
     # Add instances, now that we have all parameters.
     available = existing;
     available["save"][1] = Save(asked.directory, asked.separator, asked.template, asked.no_overwrite)
-    available["inkscape"][1] = Command("inkscape {target} --without-gui --export-png={flick} --export-area-page", asked.directory, asked.separator, asked.template, "png", asked.no_overwrite)
-    available["git"][1] = Command("git add {target} ; git commit -m 'Automatic flicksave commit: {flick}'")
     available["log"][1] = Log()
     available["cmd"] = ["", Command(asked.cmd, asked.directory, asked.separator, asked.template, asked.alt_ext, asked.no_overwrite)]
 
+    if HAS_GIT:
+        logging.debug("`git` command found")
+        available["git"][1] = Command("git add {target} ; git commit -m 'Automatic flicksave commit of {target} at {timestamp}'")
+    else:
+        print("WARNING: `git` command not found, the --inkscape action is disabled.", file=sys.stderr)
+
+    if HAS_INKSCAPE:
+        logging.debug("`inkscape` command found")
+        available["inkscape"][1] = Command("inkscape {target} --without-gui --export-png={flick} --export-area-page", asked.directory, asked.separator, asked.template, "png", asked.no_overwrite)
+    else:
+        print("WARNING: `inkscape` command not found, the --inkscape action is disabled.", file=sys.stderr)
+
     if HAS_ZENITY:
+        logging.debug("`zenity` command found and display available")
         available["zenity"][1] = Command("zenity --info --text 'File {target} was {event}'")
+    else:
+        has_zen = ""
+        if not shutil.which("zenity"):
+            has_zen = "`zenity` command not found, "
+        has_X = ""
+        if not  os.environ.get('DISPLAY'):
+            has_X = "No graphical display found, "
+        print("WARNING: "+has_X + has_zen + "the --zenity action is disabled.", file=sys.stderr)
 
     if HAS_DBUS:
         available["dbus"][1] = DBus()
+    else:
+        print("WARNING: No suitable Python `sdbus` module found, the --dbus action is disabled.", file=sys.stderr)
 
     # Check that both available and existing are aligned.
     for op in existing:
@@ -438,6 +453,14 @@ if __name__=="__main__":
     logging.debug("Available operators:")
     for name in available:
         logging.debug("\t%s",name)
+
+    # Required argument.
+    parser.add_argument("targets", nargs="+",
+        help="The files to save each time it's modified.")
+
+    parser.add_argument('-h', '--help', action='help', default='', help=('Show this help message and exit'))
+
+    asked = parser.parse_args()
 
     operators = []
     requested = vars(asked)
