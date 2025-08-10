@@ -22,11 +22,12 @@ and, for instance, create the snapshots by himself each time something happens.
 
 Currently, FlickSave can perform the following actions:
 
-- `--save`: save a timestamped  snapshot of the watched file(s),
-- `--inkscape`: export a timestamped PNG(s) of a watched SVG(s),
-- `--git`: commit the modifications of the watched file(s),
-- `--log`: print a message stating that the watched file(s) were touched.
-- `--dbus`: send a notification to the system's D-Bus.
+- `--save`,
+- `--inkscape`,
+- `--git`,
+- `--log`,
+- `--dbus`,
+- `--cmd [COMMAND]`.
 
 You can pass multiple actions.
 For instance, you can both export a PNG and do a Git commit.
@@ -46,20 +47,41 @@ For instance, with a target file named `test.svg`, a snapshot will look like `te
 
 ### Optional arguments
 
-* `-h`, `--help`: show this help message and exit.
+Actions:
+
 * `--save`: Save a snapshot of the watched file.
 * `--inkscape`: Save a PNG snpashot of the watched SVG file.
 * `--git`: Commit the watched file if it has been modified.
 * `--log`: Print a message when the watched file is touched.
 * `--dbus`: Send a notification to the system's D-Bus.
+* `--cmd [COMMAND]: Run the passed command for each watched file.
+    You can use tags, which will be replaced by actual data:
+        - {target} (the current watched file),
+        - {flick} (the timestamped absolute filename, containing the --directory),
+        - {directory} (cf. --directory, where to put timestamped files),
+        - {separator} (cf. --separator),
+        - {timestamp} (the timestamp formatted by --template),
+        - {alt_ext} (cf. --alt-ext alternate extension),
+        - {no_overwrite} (cf. --no-overwrite boolean, 1 if True, 0 if False),
+        - {event} (the event type, cf. --events).
+
+Common actions parameters:
+
+* `-y DELAY`, `--delay DELAY`: The minimum time (in seconds) between running actions. (default: 10)
+* `-e {opened,moved,deleted,created,modified,closed}...`, `--events`: The events touching the watched file for which you want your action perfomed. You can pass multiple (space-separated) events, then the action will be performed for each of them. (default: modified)
+
+Actions parameters affecting only certain actions:
+
 * `-d DIRECTORY`, `--directory DIRECTORY`: The directory in which to copy the saved versions.  (default: .)
-* `-y DELAY`, `--delay DELAY`: The minimum time (in seconds) between the creation of different saved files. (default: 10)
 * `-s SEPARATOR`, `--separator SEPARATOR`: Separator character between the file name and the date stamp. (default: _)
 * `-t TEMPLATE`, `--template TEMPLATE`: Template of the date stamp. (default: %Y-%m-%dT%H:%M:%S)
-* `-e {opened,moved,deleted,created,modified,closed}...`, `--events`: The events touching the watched file for which you want your action perfomed. You can pass multiple (space-separated) events, then the action will be performed for each of them. (default: modified)
 * `-w`, `--no-overwrite`: Do not overwrite snapshots created at the same time, but append a number to their name (especially useful if you watch several events).
-* `-v {DEBUG,INFO,WARNING,ERROR}`, `--verbose {DEBUG,INFO,WARNING,ERROR}`: Verbosity level. (default: WARNING)
+* `-x EXTENSION`, `--alt-ext EXTENSION`: Alternate extension for the timestamped snapshot (do not forget the dot). (default: )
 
+Other:
+
+* `-h`, `--help`: show this help message and exit.
+* `-v {DEBUG,INFO,WARNING,ERROR}`, `--verbose {DEBUG,INFO,WARNING,ERROR}`: Verbosity level. (default: WARNING)
 
 ## Examples
 
@@ -101,6 +123,12 @@ and be notified when it's done:
 You can also prepare the list of files to watch by using a subcommand:
 
     $ flicksave --log $(find . -type f -name *.png | grep -v test)
+
+If you want to pass your own command:
+
+    $ flicksave --cmd "git commit -a -m 'whatever'" my_file
+    $ flicksave --cmd "git add {target} ; git commit -m 'Automated commit' ; git tag '{timestamp}'"
+    $ flicksave --cmd "echo '{flick}' > watching_pipe" *.log
 
 
 ## Authors

@@ -216,7 +216,7 @@ class Command(Save):
         self.no_overwrite = no_overwrite
 
     def __repr__(self):
-        return f"Command(\"{self.cmd}\",{self.save_dir}, {self.date_sep},{self.date_template},{self.alt_ext})"
+        return f"Command(\"{self.cmd}\",{self.save_dir}, {self.date_sep},{self.date_template},{self.alt_ext},{self.no_overwrite})"
 
     def __call__(self, target, flick, event):
         # Change the extension, if asked.
@@ -224,7 +224,16 @@ class Command(Save):
         if self.alt_ext:
             flick.ext = self.alt_ext
 
-        cmd = self.cmd.format(target=flick.target,flick=self.as_file(flick))
+        cmd = self.cmd.format(
+            target = flick.target,
+            flick = self.as_file(flick),
+            directory = self.save_dir,
+            separator = self.date_sep,
+            timestamp = flick.date,
+            alt_ext = self.alt_ext,
+            no_overwrite = int(self.no_overwrite),
+            event = event.event_type,
+        )
         logging.info("Run command: %s", cmd)
         try:
             # We want the shell because we may call shell command or need environment variables.
@@ -349,6 +358,9 @@ if __name__=="__main__":
     parser.add_argument("-w", "--no-overwrite", action="store_true",
         help="Do not overwrite snapshots created at the same time, but append a number to their name.")
 
+    parser.add_argument("-x", "--alt-ext", metavar="EXTENSION" default='',
+        help="Alternate extension for the timestamped snapshot (do not forget the dot).")
+
     parser.add_argument("-v","--verbose", choices=['DEBUG','INFO','WARNING','ERROR'], default='INFO',
         help="Verbosity level.")
     log_as = { 'DEBUG'  :logging.DEBUG,
@@ -356,6 +368,8 @@ if __name__=="__main__":
                'WARNING':logging.WARNING,
                'ERROR'  :logging.ERROR }
 
+    parser.add_argument("--cmd", metavar="COMMAND", type=str,
+        help="Execute the provided command as a action. You can use the following tags: {target} (watched file), {flick} (timestamped filename), {directory} (--directory where to put timestamped files), {separator} (--separator), {timestamp} (the timestamp formatted by --template), {alt_ext} (--alt-ext alternate extension), {no_overwrite} (--no-overwrite boolean, 1 if True, 0 if False), {event} (the event type).")
 
     existing = {
         "save":
@@ -394,15 +408,16 @@ if __name__=="__main__":
     available["inkscape"][1] = Command("inkscape {target} --without-gui --export-png={flick} --export-area-page", asked.directory, asked.separator, asked.template, "png", asked.no_overwrite)
     available["git"][1] = Command("git add {target} ; git commit -m 'Automatic flicksave commit: {flick}'")
     available["log"][1] = Log()
+    available["cmd"] = ["", Command(asked.cmd, asked.directory, asked.separator, asked.template, asked.alt_ext, asked.no_overwrite)]
+
     if HAS_DBUS:
         available["dbus"][1] = DBus()
 
-    if __debug__:
-        # Check that both available and existing are aligned.
-        for op in existing:
-            assert op in available
-        for op in available:
-            assert op in existing
+    # Check that both available and existing are aligned.
+    for op in existing:
+        assert op in available
+    for op in available:
+        assert op in existing
 
     logging.debug("Available operators:")
     for name in available:
@@ -411,8 +426,8 @@ if __name__=="__main__":
     operators = []
     requested = vars(asked)
     def instance(name):
-        return existing[name][1]
-    for it in [iz for iz in requested if iz in available and requested[iz]==True]:
+        return available[name][1]
+    for it in [iz for iz in requested if iz in available and requested[iz]]:
         operators.append(instance(it))
 
     if len(operators) == 0:
