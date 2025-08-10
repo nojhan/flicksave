@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 #encoding: utf-8
 
+VERSION = "1.0.0"
+
 import os
 import sys
 import time
@@ -317,7 +319,9 @@ if __name__=="__main__":
     parser = argparse.ArgumentParser(formatter_class=SaneHelpFormatter,
         add_help = False,
         description="Perform an action each time a file is touched. For example: make a copy of a file each time it is modified.",
-        epilog="""Examples:
+        epilog=f"""Version: {VERSION}
+
+Examples:
     Copy the file each time it is modified:
         flicksave --save my_file
     Copy the file in a subdirectory each time it is modified:
@@ -362,6 +366,15 @@ if __name__=="__main__":
                'INFO'   :logging.INFO,
                'WARNING':logging.WARNING,
                'ERROR'  :logging.ERROR }
+
+    parser.add_argument("--version", action="store_true",
+        help="Show program's version number and exit.")
+
+    asked = parser.parse_known_args()[0]
+
+    if asked.version:
+        print(VERSION, file=sys.stderr)
+        sys.exit()
 
     parser.add_argument("--cmd", metavar="COMMAND", type=str,
         help="Execute the provided command as a action. You can use the following tags: {target} (watched file), {flick} (timestamped filename), {directory} (--directory where to put timestamped files), {separator} (--separator), {timestamp} (the timestamp formatted by --template), {alt_ext} (--alt-ext alternate extension), {no_overwrite} (--no-overwrite boolean, 1 if True, 0 if False), {event} (the event type).")
