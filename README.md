@@ -26,7 +26,8 @@ Currently, FlickSave can perform the following actions:
 - `--inkscape`,
 - `--git`,
 - `--log`,
-- `--dbus`,
+- `--dbus` (disabled if the `sdbus` python module is not installed),
+- `--zenity` (disabled if the `zenity` command is not installed, or if no graphical display is available),
 - `--cmd [COMMAND]`.
 
 You can pass multiple actions.
@@ -52,8 +53,9 @@ Actions:
 * `--save`: Save a snapshot of the watched file.
 * `--inkscape`: Save a PNG snpashot of the watched SVG file.
 * `--git`: Commit the watched file if it has been modified.
-* `--log`: Print a message when the watched file is touched.
+* `--log`: Print a message.
 * `--dbus`: Send a notification to the system's D-Bus.
+* `--zenity`: Pop-up a dialog window.
 * `--cmd [COMMAND]: Run the passed command for each watched file.
     You can use tags, which will be replaced by actual data:
         - {target} (the current watched file),

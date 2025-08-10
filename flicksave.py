@@ -238,11 +238,11 @@ class Command(Save):
         try:
             # We want the shell because we may call shell command or need environment variables.
             proc = subprocess.run(cmd, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as err:
             logging.error("ERROR while calling command")
-            logging.error("\tReturn code: %s",proc.returncode)
-            logging.error("\tOut: %s",proc.stdout)
-            logging.error("\tErr: %s",proc.stderr)
+            logging.error("\tReturn code: %s",err.returncode)
+            logging.error("\tOut: %s",err.stdout)
+            logging.error("\tErr: %s",err.stderr)
         except:
             logging.error("ERROR while calling subprocess: %s", sys.exc_info()[0])
 
@@ -358,7 +358,7 @@ if __name__=="__main__":
     parser.add_argument("-w", "--no-overwrite", action="store_true",
         help="Do not overwrite snapshots created at the same time, but append a number to their name.")
 
-    parser.add_argument("-x", "--alt-ext", metavar="EXTENSION" default='',
+    parser.add_argument("-x", "--alt-ext", metavar="EXTENSION", default='',
         help="Alternate extension for the timestamped snapshot (do not forget the dot).")
 
     parser.add_argument("-v","--verbose", choices=['DEBUG','INFO','WARNING','ERROR'], default='INFO',
@@ -390,6 +390,19 @@ if __name__=="__main__":
             ["Send a notification (on the system's D-Bus).",
             None]
 
+    if shutil.which("zenity") and os.environ.get('DISPLAY'):
+        HAS_ZENITY = True
+        existing["zenity"] = ["Pop-up a dialog boz each time a file is touched.", None]
+    else:
+        HAS_ZENITY = False
+        has_zen = ""
+        if not shutil.which("zenity"):
+            has_zen = "`zenity` command not found, "
+        has_X = ""
+        if not  os.environ.get('DISPLAY'):
+            has_X = "No graphical display found, "
+        logging.warning(has_X + has_zen + "the --zenity action is disabled.")
+
     def help(name):
         return existing[name][0]
 
@@ -409,6 +422,9 @@ if __name__=="__main__":
     available["git"][1] = Command("git add {target} ; git commit -m 'Automatic flicksave commit: {flick}'")
     available["log"][1] = Log()
     available["cmd"] = ["", Command(asked.cmd, asked.directory, asked.separator, asked.template, asked.alt_ext, asked.no_overwrite)]
+
+    if HAS_ZENITY:
+        available["zenity"][1] = Command("zenity --info --text 'File {target} was {event}'")
 
     if HAS_DBUS:
         available["dbus"][1] = DBus()
